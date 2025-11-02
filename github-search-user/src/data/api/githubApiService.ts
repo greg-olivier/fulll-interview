@@ -16,6 +16,7 @@ export class GitHubAPIService implements APIService {
   baseUrl: string;
   endpoint: Endpoint;
   headers: HeadersInit;
+  rateLimitReset: number = 0;
 
   constructor(endpoint: Endpoint) {
     this.baseUrl = API_URL;
@@ -26,27 +27,49 @@ export class GitHubAPIService implements APIService {
     };
   }
 
+  protected handleRateLimit(response: Response): void {
+    if (response.status === 403) {
+      const remaining = parseInt(
+        response.headers.get("X-RateLimit-Remaining") || "0",
+        10,
+      );
+
+      if (remaining !== 0) return;
+
+      const resetAt = parseInt(
+        response.headers.get("X-RateLimit-Reset") || "0",
+        10,
+      );
+      this.rateLimitReset = resetAt;
+      throw new RateLimitError(resetAt);
+    }
+  }
+
+  protected checkRateLimit(): boolean {
+    return this.rateLimitReset > Date.now() / 1000;
+  }
+
   async get<T>(
     queryParams: Record<string, string>,
     options: RequestInit = {},
   ): Promise<T> {
     const url = makeUrl(this.baseUrl, this.endpoint, queryParams);
 
+    if (this.checkRateLimit()) {
+      throw new RateLimitError(this.rateLimitReset);
+    }
+
     try {
-      const res = await fetch(url, {
+      const response = await fetch(url, {
         ...options,
         method: "GET",
         headers: { ...options.headers, ...this.headers },
       });
-      const headers = res.headers;
-      if (res.status === 403) {
-        const resetAt = parseInt(headers.get("X-RateLimit-Reset") || "0", 10);
-        throw new RateLimitError(resetAt);
+      this.handleRateLimit(response);
+      if (!response.ok) {
+        throw new NetworkError(response.status);
       }
-      if (!res.ok) {
-        throw new NetworkError(res.status);
-      }
-      return res.json();
+      return response.json();
     } catch (error) {
       if (error instanceof ApiError) {
         throw error;
