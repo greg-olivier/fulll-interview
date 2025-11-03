@@ -6,7 +6,6 @@ function evaluateNumber(n) {
     let result = '';
     if (isDivisibleBy(n, 3)) result += 'Fizz';
     if (isDivisibleBy(n, 5)) result += 'Buzz';
-    if (isDivisibleBy(n, 7)) result += 'Bazz';
     return result || n;
 }
 
